@@ -1,0 +1,255 @@
+#include<FirebaseESP32.h>
+ #include <WiFiUdp.h>
+#include <ESP32Servo.h>
+#include <ESP32Time.h>
+
+FirebaseData fbdo;
+
+unsigned long timeR;
+float tiempo = 5000.50;// CADA 5.5 SEGUNDOS AVANZA UN GRADO, HASTA LLEGAR A LOS 150°
+unsigned long  t =0;
+
+int pos_default =35;
+int pos_default_add=35;
+float Sensibilidad=0.100;
+boolean act_1,act_2=false;
+int voltajeTotalBateria=3.7;
+char DiaSemana[][4] = {"Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab" };
+
+struct ConexionFirebase{
+  const char* FIREBASE_HOST;
+  const char* FIREBASE_AUTH;
+};
+struct ConexionWifi{
+  const char* WIFI_SSID;
+  const char* WIFI_PASSWORD;
+};
+struct Control {
+  const uint8_t PINFOCO;
+  String estado;
+};
+
+struct TimeNow{
+  int segundo; 
+  int minuto;
+  int hora;
+  int dia;
+  int mes;
+  int year;
+  int diaSemana;
+};
+
+  ESP32Time rtc;
+  Servo panel;
+ ConexionFirebase conexionFire1={"hogar-inteligente-77982-default-rtdb.firebaseio.com","7xUPxZDDglv0kArDXbCvLyGfGwdn1KtNcXhUURVm"};
+ConexionWifi conexionWifi1={"THE FLASH//","MYNAMEISJOHNNY10"};
+//ConexionWifi conexionWifi1={"POCO X3 Pro","Dragonball98"};
+Control FOCO1= {12,"OFF"};
+Control FOCO2 = {13,"OFF"};
+
+void setup()
+{
+
+  Serial.begin(115200);
+
+  WiFi.begin(conexionWifi1.WIFI_SSID, conexionWifi1.WIFI_PASSWORD);
+
+  Serial.print("Connecting to Wi-Fi");
+
+  while (WiFi.status() != WL_CONNECTED)
+
+  {
+Serial.println("ESTOY TRATANDO DE CONECTARME");
+    Serial.print(".");
+
+    delay(300);
+
+  }
+
+  Serial.println();
+
+  Serial.print("Connected with IP: ");
+
+  Serial.println(WiFi.localIP());
+
+  Serial.println();
+
+  Firebase.begin(conexionFire1.FIREBASE_HOST, conexionFire1.FIREBASE_AUTH);
+
+  Firebase.reconnectWiFi(true);
+  pinMode(FOCO1.PINFOCO,OUTPUT);
+  pinMode(FOCO2.PINFOCO,OUTPUT);
+  pinMode(4,INPUT);
+  pinMode(2,INPUT);
+  pinMode(27,OUTPUT);
+ panel.attach(14);
+ rtc.setTime(10,2,21,14,8,2022);
+
+
+
+
+
+
+}
+
+
+
+ 
+
+/* we create a new task here */
+ 
+/* the forever loop() function is invoked by Arduino ESP32 loopTask */
+
+ String conseguirEstado1(){  
+String estado1 =Firebase.getString(fbdo, F("FOCO1")) ? fbdo.to<const char *>() : fbdo.errorReason().c_str();
+return estado1;
+ }
+
+
+ String conseguirEstado2(){
+  String estado2 =Firebase.getString(fbdo, F("FOCO2")) ? fbdo.to<const char *>() : fbdo.errorReason().c_str();
+  return estado2;
+ }
+
+ TimeNow obtenerTiempo(){
+  TimeNow tiempo={rtc.getSecond(),rtc.getMinute(),rtc.getHour(true),rtc.getDay(),rtc.getMonth(),rtc.getYear(), rtc.getDayofWeek()};
+     return tiempo;
+}
+
+float obtenerLDR(){
+      float LDR = analogRead(2);
+  delay(1000);
+ Serial.print("SENSOR_LDR ");
+ Serial.println(LDR);
+ return LDR;
+}
+
+ void controlServo(){
+float LDR = obtenerLDR();
+TimeNow tiempoActual= obtenerTiempo();
+
+    Serial.print(tiempoActual.year);
+    Serial.print('/');
+    Serial.print(tiempoActual.mes);
+    Serial.print('/');
+    Serial.print(tiempoActual.dia);
+    Serial.print(' ');
+    Serial.print(tiempoActual.hora);
+    Serial.print(':');
+    Serial.print(tiempoActual.minuto);
+    Serial.print(':');
+    Serial.print(tiempoActual.segundo);
+    Serial.print(' ');
+    Serial.print(DiaSemana[tiempoActual.diaSemana]);
+    Serial.println();
+    
+   delay(1000); // Se actualiza cada segundo
+
+   if (LDR <=600){
+    panel.write(pos_default);
+}
+if(tiempoActual.minuto>=2&& tiempoActual.minuto<12){
+  act_1=true;
+ Serial.print("Estoy en if de 2 a 12");
+}
+
+  
+if ( act_1==true){
+       
+         timeR=millis();
+        if(timeR-t > tiempo){
+         t=timeR;
+         pos_default_add++;
+          }
+        if(LDR > 800){
+       panel.write (pos_default_add);
+       Serial.print("GRADOS SERVO");
+       Serial.println(pos_default_add);
+        }
+}
+
+if(pos_default_add >=150){
+  act_1=false;
+}
+if(pos_default_add >=150 && tiempoActual.minuto>=12){       
+         pos_default_add =35;
+         panel.write (pos_default);
+         Serial.print("estoy en tiempo mayor a 12");
+         
+}
+ }
+float get_voltage(int n_muestras)
+{
+  float voltage=0;
+  
+  for(int i=0;i<n_muestras;i++)
+  {
+    voltage =voltage+analogRead(A0) * (5.0 / 1023.0);    
+  }
+  voltage=voltage/n_muestras;
+  return(voltage);
+}
+
+ float sensarCorriente(){
+  float voltajeSensor= analogRead(4)*(5.0 / 1023.0); //lectura del sensor   
+  Serial.println(voltajeSensor);
+  float I=(voltajeSensor-2.5)/Sensibilidad; //Ecuación  para obtener la corriente
+  return I;
+ }
+
+ void controlFoco1(){
+  String foco1 = conseguirEstado1();
+   Serial.println(foco1);
+  if(foco1 == "ON"){
+    Serial.println("entre");
+  digitalWrite(FOCO1.PINFOCO,HIGH);
+}
+else if(foco1 == "OFF"){
+  digitalWrite(FOCO1.PINFOCO,LOW);
+}
+ }
+
+
+void controlFoco2(){
+ 
+   // FOCO2.estado=conseguirEstado1();
+  String foco2 = conseguirEstado2();
+   Serial.println(foco2);
+  if(foco2 == "ON"){
+  digitalWrite(FOCO2.PINFOCO,HIGH);
+}
+else if(foco2 == "OFF"){
+  digitalWrite(FOCO2.PINFOCO,LOW);
+}
+ }
+
+boolean validarBateria(float voltaje){
+  if(voltaje<voltajeTotalBateria*0.25){
+    digitalWrite(27,HIGH);
+  }
+  else{
+    digitalWrite(27,LOW);
+  }
+}
+
+ float get_corriente(int n_muestras)
+{
+  float voltajeSensor;
+  float corriente=0;
+  for(int i=0;i<n_muestras;i++)
+  {
+    voltajeSensor = analogRead(4) * (5 / 4095.0);////lectura del sensor
+    corriente=corriente+(voltajeSensor-2.5)/Sensibilidad; //Ecuación  para obtener la corriente
+  }
+  corriente=corriente/n_muestras;
+  return(corriente);
+}
+ 
+void loop()
+{
+
+  controlFoco1();
+    controlFoco2(); 
+ controlServo();//
+   
+}
